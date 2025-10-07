@@ -170,18 +170,15 @@ def process_note_debug(note, generate_text, generate_audio, override_text, overr
             try:
                 if progress_callback and callable(progress_callback):
                     progress_callback("Sending request to OpenAI...")
-                    
+
                 explanation = process_with_openai(CONFIG["openai_key"], prompt, CONFIG["openai_model"])
-                if not explanation:
-                    debug_log("Failed to generate explanation from OpenAI")
-                    return False, "Failed to generate explanation from OpenAI"
                 debug_log(f"Received explanation: {explanation[:50]}...")
-                
+
                 if progress_callback and callable(progress_callback):
                     progress_callback("Received explanation from OpenAI")
             except Exception as e:
                 debug_log(f"Error in process_with_openai: {str(e)}")
-                return False, f"Error calling OpenAI API: {str(e)}"
+                return False, str(e)
         else:
             debug_log("Text generation not needed - using existing content for audio generation")
             # Use existing explanation for audio generation if available
@@ -224,7 +221,8 @@ def process_note_debug(note, generate_text, generate_audio, override_text, overr
         # Audio generation using the selected TTS engine
         debug_log("Starting audio generation step")
         audio_path_result = [None]
-        
+        audio_error = None
+
         # Check if audio generation should be performed
         if should_generate_audio:
             debug_log("Audio generation needed - proceeding with TTS")
@@ -238,7 +236,7 @@ def process_note_debug(note, generate_text, generate_audio, override_text, overr
                     # Generate audio using the explanation text (existing or newly generated)
                     debug_log(f"Calling generate_audio with engine: {CONFIG['tts_engine']}")
                     debug_log(f"Audio generation parameters: api_key_length={len(CONFIG.get('openai_key', ''))}, explanation_length={len(explanation)}")
-                    
+
                     # Prepare parameters for audio generation with detailed logging
                     api_key = CONFIG.get("openai_key", "")
                     aivis_style_id = CONFIG.get("aivisspeech_style_id") if CONFIG['tts_engine'] == 'AivisSpeech' else None
@@ -260,9 +258,13 @@ def process_note_debug(note, generate_text, generate_audio, override_text, overr
                     if audio_path:
                         debug_log(f"Audio generated successfully: {audio_path}")
                         audio_path_result[0] = audio_path
+                    else:
+                        audio_error = f"{CONFIG['tts_engine']} audio generation failed: No audio file returned"
+                        debug_log(audio_error)
                 except Exception as e:
+                    audio_error = f"{CONFIG['tts_engine']} audio generation error: {str(e)}"
                     debug_log(f"Error during audio generation: {str(e)}")
-                
+
                 # Save audio result to note if generation was successful
                 if audio_path_result[0]:
                     # If the returned value is already an Anki sound tag, use it as-is,
@@ -274,11 +276,12 @@ def process_note_debug(note, generate_text, generate_audio, override_text, overr
                         note[CONFIG["explanation_audio_field"]] = f"[sound:{audio_filename}]"
                     debug_log("Audio reference saved to note")
                 else:
-                    # Audio generation failed - add placeholder
+                    # Audio generation failed - add placeholder and prepare to return error
                     note[CONFIG["explanation_audio_field"]] = "[Audio generation failed]"
                     debug_log("Audio generation failed, placeholder saved")
             else:
-                debug_log(f"Audio field not found in note: {CONFIG['explanation_audio_field']}")
+                audio_error = f"Audio field '{CONFIG['explanation_audio_field']}' not found in note"
+                debug_log(audio_error)
         
         elif CONFIG.get("disable_audio", False):
             debug_log("Audio generation is disabled in settings - leaving audio field unchanged")
@@ -306,19 +309,24 @@ def process_note_debug(note, generate_text, generate_audio, override_text, overr
         # Save changes - wrap in try/except to catch any issues
         try:
             debug_log("Calling note.flush() to save changes")
-            
+
             if progress_callback and callable(progress_callback):
                 progress_callback("Saving changes to note...")
-                
+
             note.flush()
             debug_log("Note.flush() completed successfully")
-            
+
             if progress_callback and callable(progress_callback):
                 progress_callback("Changes saved successfully")
         except Exception as e:
             debug_log(f"Error in note.flush(): {str(e)}")
             return False, f"Error saving changes to note: {str(e)}"
-            
+
+        # Check if audio generation failed when it was requested
+        if audio_error:
+            debug_log(f"=== PROCESS NOTE COMPLETED WITH AUDIO ERROR ===")
+            return False, audio_error
+
         debug_log("=== PROCESS NOTE COMPLETED SUCCESSFULLY ===")
         return True, "Process completed successfully"
     except Exception as e:

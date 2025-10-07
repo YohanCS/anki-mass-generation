@@ -68,22 +68,34 @@ def process_with_openai(api_key, prompt, model="gpt-4.1"):
         debug_log("Sending request to OpenAI API...")
         response = requests.post(OPENAI_CHAT_URL, headers=headers, json=data, timeout=timeout_seconds)
         debug_log(f"Response status code: {response.status_code}")
-        
+
         if response.status_code != 200:
+            error_details = response.text[:500] if response.text else "No error details"
             debug_log(f"API returned error status: {response.status_code}")
-            debug_log(f"Response text: {response.text[:500]}...")
-            return None
-            
+            debug_log(f"Response text: {error_details}")
+
+            # Try to parse error message from response
+            try:
+                error_json = response.json()
+                if 'error' in error_json:
+                    error_msg = error_json['error'].get('message', error_details)
+                    raise Exception(f"OpenAI API Error (HTTP {response.status_code}): {error_msg}")
+            except (json.JSONDecodeError, KeyError):
+                pass
+
+            raise Exception(f"OpenAI API Error (HTTP {response.status_code}): {error_details}")
+
         response.raise_for_status()
-        
+
         try:
             response_data = response.json()
             debug_log("Successfully parsed JSON response")
-        except Exception as e:
+        except json.JSONDecodeError as e:
+            error_text = response.text[:500] if response.text else "No response text"
             debug_log(f"Error parsing JSON response: {str(e)}")
-            debug_log(f"Response text: {response.text[:500]}...")
-            return None
-            
+            debug_log(f"Response text: {error_text}")
+            raise Exception(f"Failed to parse OpenAI response: {str(e)}. Response: {error_text}")
+
         if 'choices' in response_data and len(response_data['choices']) > 0:
             explanation = response_data['choices'][0]['message']['content']
             debug_log(f"Received explanation, length: {len(explanation)}")
@@ -93,17 +105,23 @@ def process_with_openai(api_key, prompt, model="gpt-4.1"):
         else:
             debug_log("Response missing 'choices' or empty choices array")
             debug_log(f"Response data: {str(response_data)[:500]}...")
-            return None
+            raise Exception(f"Invalid OpenAI response: Missing 'choices' in response. Data: {str(response_data)[:200]}")
     except requests.exceptions.Timeout:
         debug_log("Timeout while calling OpenAI API")
-        return None
+        raise Exception(f"OpenAI API timeout after {timeout_seconds} seconds")
+    except requests.exceptions.ConnectionError as e:
+        debug_log(f"Connection error calling OpenAI API: {str(e)}")
+        raise Exception(f"Failed to connect to OpenAI API: {str(e)}")
     except requests.exceptions.RequestException as e:
         debug_log(f"Request error calling OpenAI API: {str(e)}")
-        return None
+        raise Exception(f"OpenAI API request failed: {str(e)}")
     except Exception as e:
+        # Re-raise our own exceptions, wrap others
+        if "OpenAI API" in str(e) or "Failed to parse" in str(e) or "Invalid OpenAI" in str(e):
+            raise
         debug_log(f"Unexpected error calling OpenAI API: {str(e)}")
         debug_log(f"Stack trace: {traceback.format_exc()}")
-        return None
+        raise Exception(f"Unexpected error calling OpenAI: {str(e)}")
     finally:
         debug_log("=== PROCESS WITH OPENAI END ===")
 

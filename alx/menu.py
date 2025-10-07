@@ -15,6 +15,7 @@ from .logging import debug_log
 from .processing import process_note
 from .ui.bulk_dialog import BulkGenerationDialog
 from .ui.config_dialog import ConfigDialog
+from .ui.error_dialog import ErrorDetailsDialog
 
 
 def setup_menu():
@@ -99,33 +100,44 @@ def batch_process_notes():
         skipped_count = 0
         error_count = 0
         missing_fields_count = 0
-        
+        errors = {}  # Dict[note_id] -> (card_info, error_message)
+
         try:
             for i, note_id in enumerate(selected_notes):
                 if progress.wasCanceled():
                     break
-                
+
                 note = mw.col.get_note(note_id)
-                
+
                 # Update progress UI from main thread
-                mw.taskman.run_on_main(lambda i=i, total=len(selected_notes): 
+                mw.taskman.run_on_main(lambda i=i, total=len(selected_notes):
                     progress.setLabelText(f"Processing card {i+1} of {total}..."))
                 mw.taskman.run_on_main(lambda i=i: progress.setValue(i+1))
-                
+
                 # Skip processing if note type doesn't match configured type
                 model_name = note.note_type()["name"]
                 if model_name != CONFIG["note_type"]:
                     debug_log(f"Skipping note {note_id}: Note type {model_name} doesn't match configured type {CONFIG['note_type']}")
                     missing_fields_count += 1
                     continue
-                
+
                 # Skip processing if required fields are missing
                 required_fields = [CONFIG["word_field"], CONFIG["sentence_field"]]
                 if not all(field in note and field in note.keys() for field in required_fields):
                     debug_log(f"Skipping note {note_id}: Missing required fields")
                     missing_fields_count += 1
                     continue
-                
+
+                # Extract card info for error reporting
+                card_info = "Unknown"
+                try:
+                    if CONFIG["word_field"] in note:
+                        word = note[CONFIG["word_field"]]
+                        # Truncate if too long
+                        card_info = word[:50] + "..." if len(word) > 50 else word
+                except Exception:
+                    pass
+
                 # Process the note with separate generation flags
                 success, message = process_note(note, generate_text, generate_audio, override_text, override_audio, progress_callback=None)
                 if success:
@@ -140,18 +152,33 @@ def batch_process_notes():
                         note.flush()
                 else:
                     error_count += 1
+                    errors[note_id] = (card_info, message)
                     debug_log(f"Note {note_id} failed: {message}")
             
             # Final update on main thread
             mw.taskman.run_on_main(lambda: progress.setValue(len(selected_notes) + 1))
-            
+
             # Show results
-            mw.taskman.run_on_main(lambda: 
-                showInfo(f"Batch processing complete:\n"
-                         f"{success_count} cards processed successfully\n"
-                         f"{skipped_count} cards skipped (already had content)\n"
-                         f"{missing_fields_count} cards skipped (missing fields or wrong note type)\n"
-                         f"{error_count} cards failed"))
+            def show_results():
+                if errors:
+                    # Show detailed error dialog
+                    error_dialog = ErrorDetailsDialog(
+                        parent=mw,
+                        errors=errors,
+                        success_count=success_count,
+                        skipped_count=skipped_count,
+                        missing_fields_count=missing_fields_count,
+                    )
+                    error_dialog.exec()
+                else:
+                    # Show simple success message
+                    showInfo(f"Batch processing complete:\n"
+                             f"{success_count} cards processed successfully\n"
+                             f"{skipped_count} cards skipped (already had content)\n"
+                             f"{missing_fields_count} cards skipped (missing fields or wrong note type)\n"
+                             f"0 cards failed")
+
+            mw.taskman.run_on_main(show_results)
             
         except Exception as e:
             debug_log(f"Error in batch processing: {str(e)}")
