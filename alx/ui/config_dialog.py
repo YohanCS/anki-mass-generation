@@ -243,6 +243,18 @@ class ConfigDialog(QDialog):
         qconnect(self.elevenlabs_validate_btn.clicked, self.validate_elevenlabs_key)
         eleven_key_layout.addWidget(self.elevenlabs_validate_btn)
         pel.addLayout(eleven_key_layout)
+
+        elevenlabs_instructions = QLabel(
+            "Create or manage your key at "
+            "<a href=\"https://elevenlabs.io/app/developers/api-keys\">https://elevenlabs.io/app/developers/api-keys</a>. "
+            "Ensure the key grants access to the text-to-speech endpoint and read access to the voices endpoint."
+        )
+        elevenlabs_instructions.setWordWrap(True)
+        elevenlabs_instructions.setOpenExternalLinks(True)
+        elevenlabs_instructions.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.LinksAccessibleByMouse
+        )
+        pel.addWidget(elevenlabs_instructions)
         # Free-form Voice ID input
         voice_id_layout = QHBoxLayout()
         voice_id_layout.addWidget(QLabel("Voice ID:"))
