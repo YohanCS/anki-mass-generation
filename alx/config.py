@@ -85,6 +85,7 @@ def load_config() -> None:
         "explaination_field": "explanation_field",
         "explaination_audio_field": "explanation_audio_field",
         "elevenlabs_api_key": "elevenlabs_key",
+        "voicevox_default_speaker_id": "voicevox_style_id",
     }
     for old_key, new_key in rename_map.items():
         if old_key in user and new_key not in user:

@@ -740,14 +740,19 @@ class ConfigDialog(QDialog):
                     self.voicevox_voices_table.selectRow(r)
                     break
 
-    def play_voicevox_sample_ui(self, speaker_id):
+    def play_voicevox_sample_ui(self, style_id):
+        if style_id is None:
+            QMessageBox.warning(self, "Play Sample Error", "No VoiceVox style ID provided for the sample.")
+            return
+
         sample_text = "こんにちは。日本へようこそ。"
-        debug_log(f"Playing VoiceVox sample for speaker_id {speaker_id} with text: '{sample_text}'")
+        debug_log(f"Playing VoiceVox sample for style_id {style_id} with text: '{sample_text}'")
         # Generate and save into collection.media
         result = backend_generate_audio(
             api_key=None,
             text=sample_text,
             engine_override="VoiceVox",
+            style_id_override=style_id,
             save_to_collection_override=True
         )
         if result:

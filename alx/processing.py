@@ -242,15 +242,20 @@ def process_note_debug(note, generate_text, generate_audio, override_text, overr
                     # Prepare parameters for audio generation with detailed logging
                     api_key = CONFIG.get("openai_key", "")
                     aivis_style_id = CONFIG.get("aivisspeech_style_id") if CONFIG['tts_engine'] == 'AivisSpeech' else None
-                    voicevox_speaker_id = CONFIG.get("voicevox_default_speaker_id") if CONFIG['tts_engine'] == 'VoiceVox' else None
-                    
-                    debug_log(f"Calling generate_audio with: api_key='{api_key[:10] if api_key else 'None'}...', text_length={len(explanation)}, aivis_style_id={aivis_style_id}, voicevox_speaker_id={voicevox_speaker_id}")
-                    
+                    voicevox_style_id = CONFIG.get("voicevox_style_id") if CONFIG['tts_engine'] == 'VoiceVox' else None
+
+                    debug_log(
+                        f"Calling generate_audio with: api_key='{api_key[:10] if api_key else 'None'}...', "
+                        f"text_length={len(explanation)}, aivis_style_id={aivis_style_id}, "
+                        f"voicevox_style_id={voicevox_style_id}"
+                    )
+
+                    selected_style_override = aivis_style_id if aivis_style_id is not None else voicevox_style_id
+
                     audio_path = backend_generate_audio(
                         api_key,
                         explanation,
-                        style_id_override=aivis_style_id,
-                        speaker_id_override=voicevox_speaker_id
+                        style_id_override=selected_style_override
                     )
                     if audio_path:
                         debug_log(f"Audio generated successfully: {audio_path}")

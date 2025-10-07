@@ -399,12 +399,13 @@ def generate_audio_aivisspeech(text, style_id=None, base_url="http://127.0.0.1:1
         debug_log("=== AUDIO GENERATION END (AivisSpeech) ===")
 
 # VoiceVox TTS generation
-def generate_audio_voicevox(text, speaker_id_override=None):
+def generate_audio_voicevox(text, style_id=None):
     """
     Generate audio using VOICEVOX engine.
 
     Parameters:
     - text (str): The text to synthesize.
+    - style_id (int|None): Preferred VoiceVox style identifier to use.
 
     Returns:
     - str|None: The file path to the generated .wav audio file, or None if generation failed.
@@ -464,8 +465,8 @@ def generate_audio_voicevox(text, speaker_id_override=None):
         file_path = os.path.join(media_dir, filename)
         debug_log(f"VOICEVOX: Target audio file path: {file_path}.")
 
-        # Use speaker_id_override if provided, else use default
-        speaker_id = speaker_id_override if speaker_id_override is not None else 11 
+        # Use the provided style id if available, otherwise fall back to a sensible default
+        speaker_id = style_id if style_id is not None else 11
         timeout_seconds = 60 # Increased timeout slightly for synthesis
 
         # Step 1: Create an audio query
@@ -556,7 +557,11 @@ def generate_audio(api_key, text, engine_override=None, style_id_override=None, 
         # The generate_audio_aivisspeech function itself has a fallback if current_aivis_style_id is None
         return generate_audio_aivisspeech(text, style_id=current_aivis_style_id, save_to_collection=save_to_collection)
     if engine == "VoiceVox":
-        return generate_audio_voicevox(text, speaker_id_override)
+        current_voicevox_style_id = style_id_override if style_id_override is not None else CONFIG.get("voicevox_style_id")
+        # Preserve compatibility with older callers that still pass speaker_id_override
+        if current_voicevox_style_id is None and speaker_id_override is not None:
+            current_voicevox_style_id = speaker_id_override
+        return generate_audio_voicevox(text, current_voicevox_style_id)
     
     # If engine is not recognized or no specific handler, log and return None
     debug_log(f"Unknown or unhandled TTS engine: {engine}. Cannot generate audio.")
