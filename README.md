@@ -7,7 +7,7 @@ This Anki add-on helps language learners understand vocabulary words in context 
 ## ✨ Features
 
 ### 🧠 **Intelligent Explanations**
-- Automatically generates contextual explanations for target words based on a definition (optional), example sentence, and usage.
+- Automatically generates contextual explanations for target words based on an example sentence and usage.
 - Choose any OpenAI text model (eg, GPT-4.1, GPT-4o, GPT-3.5) for accurate, beginner-friendly explanations
 - Customizable prompts to match your learning style and level
 
@@ -40,7 +40,7 @@ This Anki add-on helps language learners understand vocabulary words in context 
 
 ### 1. Basic Configuration
 - **Note Type**: Select your card type (e.g., "Sentence Mining", "Vocabulary")
-- **Input Fields**: Map your target word, sentence, and definition fields
+- **Input Fields**: Map your target word and sentence fields
 - **Output Fields**: Set where explanations and audio should be saved
 - **OpenAI API Key**: Enter your API key for text generation
 
@@ -97,7 +97,7 @@ This Anki add-on helps language learners understand vocabulary words in context 
 This could be because,
 - Your OpenAI API Key has expired.
 - You ran out of OpenAI API credits.
-- Your prompt is misconfigured. Remember that {sentence}, {word}, and {definition} should all be in lowercase. It's case sensitive. There should be no other {x} in your prompt.
+- Your prompt is misconfigured. Remember that {sentence} and {word} should both be in lowercase. It's case sensitive. There should be no other {x} in your prompt.
 
 **The audio did not generate. Why?**
 
