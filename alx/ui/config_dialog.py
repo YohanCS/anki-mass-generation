@@ -148,6 +148,9 @@ class ConfigDialog(QDialog):
         model_layout.addWidget(QLabel("Model:"))
         self.model_dropdown = QComboBox()
         self.model_dropdown.addItems([
+            "gpt-5.4",
+            "gpt-5.4-mini",
+            "gpt-5.4-nano",
             "gpt-4.1",
             "gpt-4.1-mini",
             "gpt-4.1-nano", 
@@ -155,13 +158,13 @@ class ConfigDialog(QDialog):
             "gpt-4o-mini",
             "gpt-3.5-turbo"
         ])
-        self.model_dropdown.setCurrentText("gpt-4.1")
+        self.model_dropdown.setCurrentText("gpt-5.4")
         model_layout.addWidget(self.model_dropdown)
         model_layout.addStretch()
         text_gen_layout.addLayout(model_layout)
         
         # Model recommendation text
-        model_recommendation = QLabel("gpt-4.1 is recommended as it obeys the prompt well and is reasonably cheap.")
+        model_recommendation = QLabel("gpt-5.4 is recommended")
         model_recommendation.setStyleSheet("font-size: 11px; color: #666; font-style: italic; margin-top: 2px;")
         model_recommendation.setWordWrap(True)
         text_gen_layout.addWidget(model_recommendation)
