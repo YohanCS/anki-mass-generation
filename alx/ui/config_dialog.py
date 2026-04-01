@@ -164,7 +164,7 @@ class ConfigDialog(QDialog):
         text_gen_layout.addLayout(model_layout)
         
         # Model recommendation text
-        model_recommendation = QLabel("gpt-5.4 is recommended")
+        model_recommendation = QLabel("gpt-5.4 is recommended SIKE lol")
         model_recommendation.setStyleSheet("font-size: 11px; color: #666; font-style: italic; margin-top: 2px;")
         model_recommendation.setWordWrap(True)
         text_gen_layout.addWidget(model_recommendation)
@@ -201,7 +201,7 @@ class ConfigDialog(QDialog):
         engine_layout_container.setContentsMargins(0, 0, 0, 0) # Remove extra margins
         engine_layout_container.addWidget(QLabel("Engine:"))
         self.tts_engine_combo = QComboBox()
-        self.tts_engine_combo.addItems(["VoiceVox", "ElevenLabs", "OpenAI TTS", "AivisSpeech"])
+        self.tts_engine_combo.addItems(["VoiceVox", "ElevenLabs", "OpenAI TTS", "AivisSpeech", "Qwen3-TTS"])
         qconnect(self.tts_engine_combo.currentIndexChanged, self.update_tts_panels)
         engine_layout_container.addWidget(self.tts_engine_combo)
         layout.addWidget(self.engine_selection_widget) # Add the container widget
@@ -332,6 +332,79 @@ class ConfigDialog(QDialog):
         pas.addWidget(self.aivisspeech_voices_table)
         
         layout.addWidget(self.panel_aivisspeech)
+
+        # Qwen3-TTS subpanel
+        self.panel_qwen3_tts = QWidget()
+        pq = QVBoxLayout(self.panel_qwen3_tts)
+        pq.setContentsMargins(0, 0, 0, 0)
+
+        # Info label
+        qwen3_info = QLabel(
+            "Qwen3-TTS runs <b>locally on your GPU</b>. Make sure you have completed the "
+            "setup guide and the model is downloaded before using this engine."
+        )
+        qwen3_info.setWordWrap(True)
+        qwen3_info.setStyleSheet("color: #888; font-style: italic; margin-bottom: 6px;")
+        pq.addWidget(qwen3_info)
+
+        # venv Python path
+        python_row = QHBoxLayout()
+        python_row.addWidget(QLabel("Venv Python path:"))
+        self.qwen3_python_path_input = QLineEdit()
+        self.qwen3_python_path_input.setPlaceholderText(
+            r"C:\Github\qwen-tts\qwen-tts-env\Scripts\python.exe"
+        )
+        python_row.addWidget(self.qwen3_python_path_input)
+        pq.addLayout(python_row)
+
+        python_hint = QLabel(
+            "Point this to the python.exe inside the venv you created during setup. "
+            "Leave blank to use the auto-detected default path."
+        )
+        python_hint.setWordWrap(True)
+        python_hint.setStyleSheet("font-size: 11px; color: #666; font-style: italic; margin-bottom: 4px;")
+        pq.addWidget(python_hint)
+
+        # Model size selection
+        model_row = QHBoxLayout()
+        model_row.addWidget(QLabel("Model:"))
+        self.qwen3_model_combo = QComboBox()
+        self.qwen3_model_combo.addItems([
+            "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+            "Qwen/Qwen3-TTS-12Hz-0.6B-VoiceDesign",
+        ])
+        model_row.addWidget(self.qwen3_model_combo)
+        model_row.addStretch()
+        pq.addLayout(model_row)
+
+        model_hint = QLabel("1.7B = better quality (needs ~6 GB VRAM). 0.6B = faster (needs ~3 GB VRAM).")
+        model_hint.setStyleSheet("font-size: 11px; color: #666; font-style: italic;")
+        model_hint.setWordWrap(True)
+        pq.addWidget(model_hint)
+
+        # Voice prompt
+        pq.addWidget(QLabel("Voice Style Prompt (Chinese natural language description):"))
+        self.qwen3_voice_prompt_input = QTextEdit()
+        self.qwen3_voice_prompt_input.setFixedHeight(80)
+        self.qwen3_voice_prompt_input.setPlaceholderText(
+            "e.g. 高音萝莉女声，音调偏高且起伏明显，语气活泼可爱，带有轻微撒娇感"
+        )
+        pq.addWidget(self.qwen3_voice_prompt_input)
+
+        prompt_hint = QLabel(
+            "Describe the voice in Chinese. Examples: 冷静知性的成熟女声 (cool mature female), "
+            "活泼开朗的少年男声 (energetic young male), 沉稳低沉的男性旁白 (deep calm male narrator)."
+        )
+        prompt_hint.setWordWrap(True)
+        prompt_hint.setStyleSheet("font-size: 11px; color: #666; font-style: italic;")
+        pq.addWidget(prompt_hint)
+
+        # Test button
+        self.qwen3_test_btn = QPushButton("Test Qwen3-TTS (generates a sample)")
+        qconnect(self.qwen3_test_btn.clicked, self.test_qwen3_tts)
+        pq.addWidget(self.qwen3_test_btn)
+
+        layout.addWidget(self.panel_qwen3_tts)
 
         self.update_tts_panels() # Call once to set initial visibility
         layout.addStretch() # Add stretch
@@ -466,6 +539,15 @@ class ConfigDialog(QDialog):
         self.aivisspeech_style_id = CONFIG.get("aivisspeech_style_id")
         self.voicevox_style_id = CONFIG.get("voicevox_style_id")
 
+        # Load Qwen3-TTS settings
+        self.qwen3_model_combo.setCurrentText(
+            CONFIG.get("qwen3_tts_model", "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign")
+        )
+        self.qwen3_voice_prompt_input.setPlainText(
+            CONFIG.get("qwen3_tts_voice_prompt", "高音萝莉女声，音调偏高且起伏明显，语气活泼可爱，带有轻微撒娇感")
+        )
+        self.qwen3_python_path_input.setText(CONFIG.get("qwen3_python_path", ""))
+
         # Load UI preference settings
         self.disable_audio_checkbox.setChecked(CONFIG.get("disable_audio", False))
         self.hide_button_checkbox.setChecked(CONFIG.get("hide_button", False))
@@ -493,6 +575,11 @@ class ConfigDialog(QDialog):
         CONFIG["elevenlabs_voice_id"] = self.elevenlabs_voice_id_input.text()
         CONFIG["openai_tts_voice"] = self.openai_tts_combo.currentText()
         CONFIG["openai_tts_speed"] = self.openai_tts_speed_slider.value() / 100.0
+
+        # Save Qwen3-TTS settings
+        CONFIG["qwen3_tts_model"] = self.qwen3_model_combo.currentText()
+        CONFIG["qwen3_tts_voice_prompt"] = self.qwen3_voice_prompt_input.toPlainText().strip()
+        CONFIG["qwen3_python_path"] = self.qwen3_python_path_input.text().strip()
 
         # Save UI preference settings
         CONFIG["disable_audio"] = self.disable_audio_checkbox.isChecked()
@@ -523,18 +610,16 @@ class ConfigDialog(QDialog):
             self.panel_voicevox.setVisible(False)
             self.panel_elevenlabs.setVisible(False)
             self.panel_openai_tts.setVisible(False)
-            self.panel_aivisspeech.setVisible(False) # Hide AivisSpeech panel
-            self.engine_selection_widget.setVisible(False) # Hide engine selection
+            self.panel_aivisspeech.setVisible(False)
+            self.panel_qwen3_tts.setVisible(False)
+            self.engine_selection_widget.setVisible(False)
         else:
-            self.engine_selection_widget.setVisible(True) # Show engine selection
+            self.engine_selection_widget.setVisible(True)
             self.panel_voicevox.setVisible(engine == "VoiceVox")
             self.panel_elevenlabs.setVisible(engine == "ElevenLabs")
             self.panel_openai_tts.setVisible(engine == "OpenAI TTS")
-            self.panel_aivisspeech.setVisible(engine == "AivisSpeech") # Show/hide AivisSpeech panel
-            if engine == "AivisSpeech" and self.panel_aivisspeech.isVisible():
-                # Optionally auto-load voices or prompt user
-                # For now, user must click "Load Voices"
-                pass
+            self.panel_aivisspeech.setVisible(engine == "AivisSpeech")
+            self.panel_qwen3_tts.setVisible(engine == "Qwen3-TTS")
 
     def validate_elevenlabs_key(self):
         # Simple key validation for ElevenLabs
@@ -626,6 +711,59 @@ class ConfigDialog(QDialog):
             debug_log(f"Error during AivisSpeech connection test: {str(e)}")
             QMessageBox.critical(self, "Test Error", 
                 f"An error occurred while testing AivisSpeech connection:\n\n{str(e)}")
+
+    def test_qwen3_tts(self):
+        """Generate a short sample with the current Qwen3-TTS settings and play it."""
+        voice_prompt = self.qwen3_voice_prompt_input.toPlainText().strip()
+        model = self.qwen3_model_combo.currentText()
+
+        if not voice_prompt:
+            QMessageBox.warning(self, "Missing Voice Prompt",
+                                "Please enter a voice style prompt before testing.")
+            return
+
+        self.qwen3_test_btn.setEnabled(False)
+        self.qwen3_test_btn.setText("Generating sample…")
+
+        sample_text = "你好！这是一个测试。"
+
+        def run_test():
+            try:
+                sound_tag = backend_generate_audio(
+                    api_key=None,
+                    text=sample_text,
+                    engine_override="Qwen3-TTS",
+                    qwen3_model=model,
+                    qwen3_voice_prompt=voice_prompt,
+                    save_to_collection_override=True,
+                )
+                def on_done():
+                    self.qwen3_test_btn.setEnabled(True)
+                    self.qwen3_test_btn.setText("Test Qwen3-TTS (generates a sample)")
+                    if sound_tag and sound_tag.startswith("[sound:") and sound_tag.endswith("]"):
+                        filename = sound_tag[7:-1]
+                        try:
+                            from aqt.sound import play
+                            play(filename)
+                        except Exception as e:
+                            QMessageBox.critical(self, "Playback Error",
+                                                 f"Audio was generated but could not be played: {e}")
+                    else:
+                        QMessageBox.critical(self, "Test Failed",
+                                             "Qwen3-TTS did not return a valid audio file.\n\n"
+                                             "Make sure the model is downloaded and your GPU has enough VRAM.")
+                mw.taskman.run_on_main(on_done)
+            except Exception as e:
+                debug_log(f"Qwen3-TTS test error: {e}")
+                def on_error():
+                    self.qwen3_test_btn.setEnabled(True)
+                    self.qwen3_test_btn.setText("Test Qwen3-TTS (generates a sample)")
+                    QMessageBox.critical(self, "Test Error",
+                                         f"An error occurred while testing Qwen3-TTS:\n\n{e}")
+                mw.taskman.run_on_main(on_error)
+
+        import threading
+        threading.Thread(target=run_test, daemon=True).start()
 
     def load_aivisspeech_voices_ui(self):
         debug_log("Attempting to load AivisSpeech voices for UI...")

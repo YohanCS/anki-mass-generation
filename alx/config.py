@@ -45,6 +45,11 @@ CONFIG: Dict[str, object] = {
     "aivisspeech_style_id": None,
     "voicevox_style_id": None,
 
+    # === Qwen3-TTS Settings ===
+    "qwen3_tts_model": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+    "qwen3_tts_voice_prompt": "高音萝莉女声，音调偏高且起伏明显，语气活泼可爱，带有轻微撒娇感",
+    "qwen3_python_path": "",  # e.g. C:\Github\qwen-tts\qwen-tts-env\Scripts\python.exe
+
     # === Feature Toggles & UI Preferences ===
     "disable_text_generation": False,
     "disable_audio": False,

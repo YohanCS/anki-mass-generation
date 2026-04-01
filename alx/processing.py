@@ -250,10 +250,24 @@ def process_note_debug(note, generate_text, generate_audio, override_text, overr
 
                     selected_style_override = aivis_style_id if aivis_style_id is not None else voicevox_style_id
 
+                    # Build Qwen3-TTS kwargs if that engine is selected
+                    qwen3_kwargs = {}
+                    if CONFIG['tts_engine'] == 'Qwen3-TTS':
+                        qwen3_kwargs['qwen3_model'] = CONFIG.get(
+                            'qwen3_tts_model', 'Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign'
+                        )
+                        qwen3_kwargs['qwen3_voice_prompt'] = CONFIG.get(
+                            'qwen3_tts_voice_prompt',
+                            '高音萝莉女声，音调偏高且起伏明显，语气活泼可爱，带有轻微撒娇感'
+                        )
+                        debug_log(f"Qwen3-TTS model: {qwen3_kwargs['qwen3_model']}")
+                        debug_log(f"Qwen3-TTS voice prompt: {qwen3_kwargs['qwen3_voice_prompt']}")
+
                     audio_path = backend_generate_audio(
                         api_key,
                         explanation,
-                        style_id_override=selected_style_override
+                        style_id_override=selected_style_override,
+                        **qwen3_kwargs
                     )
                     if audio_path:
                         debug_log(f"Audio generated successfully: {audio_path}")

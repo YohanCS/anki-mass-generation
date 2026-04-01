@@ -57,11 +57,13 @@ def process_with_openai(api_key, prompt, model="gpt-4.1"):
         {"role": "user", "content": prompt}
     ]
     
+    # gpt-5.x models require max_completion_tokens; older models use max_tokens
+    tokens_key = "max_completion_tokens" if model.startswith("gpt-5") else "max_tokens"
     data = {
         "model": model,
         "messages": messages,
         "temperature": 0.7,
-        "max_tokens": 500
+        tokens_key: 500,
     }
     
     try:
@@ -416,6 +418,129 @@ def generate_audio_aivisspeech(text, style_id=None, base_url="http://127.0.0.1:1
     finally:
         debug_log("=== AUDIO GENERATION END (AivisSpeech) ===")
 
+# Qwen3-TTS generation
+def generate_audio_qwen3(text, model="Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign", voice_prompt="高音萝莉女声，音调偏高且起伏明显，语气活泼可爱，带有轻微撒娇感"):
+    """
+    Generate audio using Qwen3-TTS running in a separate Python venv.
+
+    Anki uses Python 3.9 which is too old for qwen-tts/PyTorch, so this
+    function calls out to a small helper script via subprocess using the
+    venv Python the user set up during installation.
+
+    Returns:
+    - str|None: Anki sound tag "[sound:filename.wav]", or None on failure.
+    """
+    debug_log("=== QWEN3-TTS AUDIO GENERATION START ===")
+    if not text or not text.strip():
+        debug_log("Qwen3-TTS: Empty text, aborting.")
+        return None
+
+    try:
+        import uuid
+        import subprocess
+        import sys
+        from . import CONFIG
+
+        # ── Find the venv Python ──────────────────────────────────────────
+        # First check if the user has set a custom path in config,
+        # otherwise fall back to common locations.
+        venv_python = CONFIG.get("qwen3_python_path", "")
+
+        if not venv_python or not os.path.isfile(venv_python):
+            # Try the default location from the setup guide
+            candidates = [
+                r"C:\Github\qwen-tts\qwen-tts-env\Scripts\python.exe",
+                os.path.join(os.path.expanduser("~"), "qwen-tts-env", "Scripts", "python.exe"),
+                os.path.join(os.path.expanduser("~"), "Github", "qwen-tts", "qwen-tts-env", "Scripts", "python.exe"),
+            ]
+            for candidate in candidates:
+                if os.path.isfile(candidate):
+                    venv_python = candidate
+                    debug_log(f"Qwen3-TTS: Auto-detected venv Python at: {venv_python}")
+                    break
+
+        if not venv_python or not os.path.isfile(venv_python):
+            debug_log("Qwen3-TTS: Could not find venv Python. Set 'qwen3_python_path' in config.")
+            raise Exception(
+                "Qwen3-TTS: venv Python not found.\n\n"
+                "Please add 'qwen3_python_path' to your add-on config pointing to your "
+                "qwen-tts-env Python, e.g.:\n"
+                r"C:\Github\qwen-tts\qwen-tts-env\Scripts\python.exe"
+            )
+
+        # ── Save text and prompt to temp files to avoid shell escaping issues ─
+        import tempfile
+        media_dir = os.path.join(mw.pm.profileFolder(), "collection.media")
+        os.makedirs(media_dir, exist_ok=True)
+        filename = f"qwen3tts_{uuid.uuid4().hex[:12]}.wav"
+        output_path = os.path.join(media_dir, filename)
+
+        # Inline helper script — no separate file needed on disk
+        helper_script = f"""
+import sys, torch, soundfile as sf
+from qwen_tts import Qwen3TTSModel
+
+model_name = {repr(model)}
+voice_prompt = {repr(voice_prompt)}
+text = {repr(text)}
+output_path = {repr(output_path)}
+
+# Cache model between calls using a module-level attribute
+if not hasattr(sys, "_qwen3_model_cache"):
+    sys._qwen3_model_cache = {{}}
+
+if model_name not in sys._qwen3_model_cache:
+    sys._qwen3_model_cache[model_name] = Qwen3TTSModel.from_pretrained(
+        model_name,
+        device_map="cuda:0",
+        dtype=torch.bfloat16,
+    )
+
+m = sys._qwen3_model_cache[model_name]
+wavs, sr = m.generate_voice_design(
+    text=[text],
+    language=["Chinese"],
+    instruct=[voice_prompt],
+)
+sf.write(output_path, wavs[0], sr)
+print("OK:" + output_path)
+"""
+
+        debug_log(f"Qwen3-TTS: Calling venv Python: {venv_python}")
+        debug_log(f"Qwen3-TTS: Model={model}, output={output_path}")
+
+        result = subprocess.run(
+            [venv_python, "-c", helper_script],
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 min — first run loads model weights
+        )
+
+        if result.returncode != 0:
+            debug_log(f"Qwen3-TTS: subprocess failed (rc={result.returncode})")
+            debug_log(f"Qwen3-TTS stderr: {result.stderr[-1000:]}")
+            raise Exception(f"Qwen3-TTS subprocess error:\n{result.stderr[-500:]}")
+
+        debug_log(f"Qwen3-TTS: subprocess stdout: {result.stdout.strip()}")
+
+        if os.path.isfile(output_path) and os.path.getsize(output_path) > 100:
+            debug_log(f"Qwen3-TTS: Audio saved successfully: {output_path}")
+            return f"[sound:{filename}]"
+        else:
+            debug_log("Qwen3-TTS: Output file missing or too small after subprocess.")
+            return None
+
+    except subprocess.TimeoutExpired:
+        debug_log("Qwen3-TTS: subprocess timed out (>5 min).")
+        raise Exception("Qwen3-TTS timed out. The model may still be downloading — try again in a few minutes.")
+    except Exception as e:
+        debug_log(f"Qwen3-TTS: Error: {str(e)}")
+        debug_log(traceback.format_exc())
+        raise
+    finally:
+        debug_log("=== QWEN3-TTS AUDIO GENERATION END ===")
+
+
 # VoiceVox TTS generation
 def generate_audio_voicevox(text, style_id=None):
     """
@@ -551,7 +676,7 @@ def generate_audio_voicevox(text, style_id=None):
         debug_log("=== VOICEVOX AUDIO GENERATION END ===")
 
 # This is the main audio generation dispatcher
-def generate_audio(api_key, text, engine_override=None, style_id_override=None, speaker_id_override=None, save_to_collection_override=None):
+def generate_audio(api_key, text, engine_override=None, style_id_override=None, speaker_id_override=None, save_to_collection_override=None, qwen3_model=None, qwen3_voice_prompt=None):
     """
     Dispatch to the selected TTS engine and generate audio.
     Can be overridden for specific cases like sample generation.
@@ -580,6 +705,10 @@ def generate_audio(api_key, text, engine_override=None, style_id_override=None, 
         if current_voicevox_style_id is None and speaker_id_override is not None:
             current_voicevox_style_id = speaker_id_override
         return generate_audio_voicevox(text, current_voicevox_style_id)
+    if engine == "Qwen3-TTS":
+        model = qwen3_model or CONFIG.get("qwen3_tts_model", "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign")
+        voice_prompt = qwen3_voice_prompt or CONFIG.get("qwen3_tts_voice_prompt", "高音萝莉女声，音调偏高且起伏明显，语气活泼可爱，带有轻微撒娇感")
+        return generate_audio_qwen3(text, model=model, voice_prompt=voice_prompt)
     
     # If engine is not recognized or no specific handler, log and return None
     debug_log(f"Unknown or unhandled TTS engine: {engine}. Cannot generate audio.")
