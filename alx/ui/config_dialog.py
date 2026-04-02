@@ -99,6 +99,34 @@ class ConfigDialog(QDialog):
         self.explanation_audio_field_combo = QComboBox()
         audio_field_layout.addWidget(self.explanation_audio_field_combo)
         layout.addLayout(audio_field_layout)
+
+        # Multilingual audio fields (Qwen3-TTS)
+        layout.addWidget(QLabel("<b>Multilingual Audio Fields (Qwen3-TTS)</b>"))
+        ml_hint = QLabel("Leave blank to skip that language. Add these fields to your note type first.")
+        ml_hint.setWordWrap(True)
+        ml_hint.setStyleSheet("font-size: 11px; color: #666; font-style: italic;")
+        layout.addWidget(ml_hint)
+
+        zh_field_layout = QHBoxLayout()
+        zh_field_layout.addWidget(QLabel("Chinese Audio Field (AI Audio ZH):"))
+        self.audio_zh_field_combo = QComboBox()
+        self.audio_zh_field_combo.setEditable(True)
+        zh_field_layout.addWidget(self.audio_zh_field_combo)
+        layout.addLayout(zh_field_layout)
+
+        ja_field_layout = QHBoxLayout()
+        ja_field_layout.addWidget(QLabel("Japanese Audio Field (AI Audio JA):"))
+        self.audio_ja_field_combo = QComboBox()
+        self.audio_ja_field_combo.setEditable(True)
+        ja_field_layout.addWidget(self.audio_ja_field_combo)
+        layout.addLayout(ja_field_layout)
+
+        en_field_layout = QHBoxLayout()
+        en_field_layout.addWidget(QLabel("English Audio Field (AI Audio EN):"))
+        self.audio_en_field_combo = QComboBox()
+        self.audio_en_field_combo.setEditable(True)
+        en_field_layout.addWidget(self.audio_en_field_combo)
+        layout.addLayout(en_field_layout)
         # Verification label for field selection
         self.field_verification_label = QLabel()
         layout.addWidget(self.field_verification_label)
@@ -371,38 +399,51 @@ class ConfigDialog(QDialog):
         self.qwen3_model_combo = QComboBox()
         self.qwen3_model_combo.addItems([
             "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
-            "Qwen/Qwen3-TTS-12Hz-0.6B-VoiceDesign",
+            "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+            "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
         ])
         model_row.addWidget(self.qwen3_model_combo)
         model_row.addStretch()
         pq.addLayout(model_row)
 
-        model_hint = QLabel("1.7B = better quality (needs ~6 GB VRAM). 0.6B = faster (needs ~3 GB VRAM).")
+        model_hint = QLabel("1.7B-VoiceDesign = best quality, describe voice in Chinese. 0.6B/1.7B-CustomVoice = faster, uses preset speakers.")
         model_hint.setStyleSheet("font-size: 11px; color: #666; font-style: italic;")
         model_hint.setWordWrap(True)
         pq.addWidget(model_hint)
 
-        # Voice prompt
-        pq.addWidget(QLabel("Voice Style Prompt (Chinese natural language description):"))
-        self.qwen3_voice_prompt_input = QTextEdit()
-        self.qwen3_voice_prompt_input.setFixedHeight(80)
-        self.qwen3_voice_prompt_input.setPlaceholderText(
-            "e.g. 高音萝莉女声，音调偏高且起伏明显，语气活泼可爱，带有轻微撒娇感"
-        )
-        pq.addWidget(self.qwen3_voice_prompt_input)
+        # Per-language voice prompts
+        pq.addWidget(QLabel("Voice Style Prompts (one per language):"))
 
-        prompt_hint = QLabel(
-            "Describe the voice in Chinese. Examples: 冷静知性的成熟女声 (cool mature female), "
-            "活泼开朗的少年男声 (energetic young male), 沉稳低沉的男性旁白 (deep calm male narrator)."
-        )
-        prompt_hint.setWordWrap(True)
-        prompt_hint.setStyleSheet("font-size: 11px; color: #666; font-style: italic;")
-        pq.addWidget(prompt_hint)
+        pq.addWidget(QLabel("🇨🇳 Chinese voice prompt:"))
+        self.qwen3_voice_prompt_zh = QTextEdit()
+        self.qwen3_voice_prompt_zh.setFixedHeight(60)
+        self.qwen3_voice_prompt_zh.setPlaceholderText("e.g. 高音萝莉女声，音调偏高且起伏明显，语气活泼可爱")
+        pq.addWidget(self.qwen3_voice_prompt_zh)
 
-        # Test button
-        self.qwen3_test_btn = QPushButton("Test Qwen3-TTS (generates a sample)")
-        qconnect(self.qwen3_test_btn.clicked, self.test_qwen3_tts)
-        pq.addWidget(self.qwen3_test_btn)
+        pq.addWidget(QLabel("🇯🇵 Japanese voice prompt:"))
+        self.qwen3_voice_prompt_ja = QTextEdit()
+        self.qwen3_voice_prompt_ja.setFixedHeight(60)
+        self.qwen3_voice_prompt_ja.setPlaceholderText("e.g. 明るく自然な日本語女性の声、アニメキャラクターらしい話し方")
+        pq.addWidget(self.qwen3_voice_prompt_ja)
+
+        pq.addWidget(QLabel("🇬🇧 English voice prompt:"))
+        self.qwen3_voice_prompt_en = QTextEdit()
+        self.qwen3_voice_prompt_en.setFixedHeight(60)
+        self.qwen3_voice_prompt_en.setPlaceholderText("e.g. Bright and clear young female voice, friendly anime style")
+        pq.addWidget(self.qwen3_voice_prompt_en)
+
+        # Test buttons — one per language
+        test_btn_row = QHBoxLayout()
+        self.qwen3_test_btn_zh = QPushButton("🇨🇳 Test CN")
+        self.qwen3_test_btn_ja = QPushButton("🇯🇵 Test JP")
+        self.qwen3_test_btn_en = QPushButton("🇬🇧 Test EN")
+        qconnect(self.qwen3_test_btn_zh.clicked, lambda: self.test_qwen3_tts("zh"))
+        qconnect(self.qwen3_test_btn_ja.clicked, lambda: self.test_qwen3_tts("ja"))
+        qconnect(self.qwen3_test_btn_en.clicked, lambda: self.test_qwen3_tts("en"))
+        test_btn_row.addWidget(self.qwen3_test_btn_zh)
+        test_btn_row.addWidget(self.qwen3_test_btn_ja)
+        test_btn_row.addWidget(self.qwen3_test_btn_en)
+        pq.addLayout(test_btn_row)
 
         layout.addWidget(self.panel_qwen3_tts)
 
@@ -463,15 +504,22 @@ class ConfigDialog(QDialog):
     def update_field_combos(self):
         note_type = self.note_type_combo.currentText()
         fields = get_fields_for_note_type(note_type)
-        
-        # Clear and update all field comboboxes
+        blank_plus_fields = [""] + fields
+
         for combo in [self.word_field_combo, self.sentence_field_combo,
                       self.explanation_field_combo, self.explanation_audio_field_combo]:
             current_text = combo.currentText()
             combo.clear()
             combo.addItems(fields)
-        
-        # Verify if selected fields exist in the note type
+
+        # Multilingual audio fields — include a blank option so they can be left empty
+        for combo in [self.audio_zh_field_combo, self.audio_ja_field_combo, self.audio_en_field_combo]:
+            current_text = combo.currentText()
+            combo.clear()
+            combo.addItems(blank_plus_fields)
+            if current_text in blank_plus_fields:
+                combo.setCurrentText(current_text)
+
         self.verify_fields()
 
     def verify_fields(self):
@@ -543,10 +591,26 @@ class ConfigDialog(QDialog):
         self.qwen3_model_combo.setCurrentText(
             CONFIG.get("qwen3_tts_model", "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign")
         )
-        self.qwen3_voice_prompt_input.setPlainText(
-            CONFIG.get("qwen3_tts_voice_prompt", "高音萝莉女声，音调偏高且起伏明显，语气活泼可爱，带有轻微撒娇感")
+        self.qwen3_voice_prompt_zh.setPlainText(
+            CONFIG.get("qwen3_voice_prompt_zh", "高音萝莉女声，音调偏高且起伏明显，语气活泼可爱，带有轻微撒娇感")
+        )
+        self.qwen3_voice_prompt_ja.setPlainText(
+            CONFIG.get("qwen3_voice_prompt_ja", "明るく自然な日本語女性の声、標準的なアクセント、アニメキャラクターらしい話し方")
+        )
+        self.qwen3_voice_prompt_en.setPlainText(
+            CONFIG.get("qwen3_voice_prompt_en", "Bright and clear young female voice, natural English pronunciation, friendly anime style")
         )
         self.qwen3_python_path_input.setText(CONFIG.get("qwen3_python_path", ""))
+
+        # Load multilingual audio field selections
+        for combo, key in [
+            (self.audio_zh_field_combo, "explanation_audio_zh_field"),
+            (self.audio_ja_field_combo, "explanation_audio_ja_field"),
+            (self.audio_en_field_combo, "explanation_audio_en_field"),
+        ]:
+            val = CONFIG.get(key, "")
+            if val in [combo.itemText(i) for i in range(combo.count())]:
+                combo.setCurrentText(val)
 
         # Load UI preference settings
         self.disable_audio_checkbox.setChecked(CONFIG.get("disable_audio", False))
@@ -578,8 +642,17 @@ class ConfigDialog(QDialog):
 
         # Save Qwen3-TTS settings
         CONFIG["qwen3_tts_model"] = self.qwen3_model_combo.currentText()
-        CONFIG["qwen3_tts_voice_prompt"] = self.qwen3_voice_prompt_input.toPlainText().strip()
+        CONFIG["qwen3_voice_prompt_zh"] = self.qwen3_voice_prompt_zh.toPlainText().strip()
+        CONFIG["qwen3_voice_prompt_ja"] = self.qwen3_voice_prompt_ja.toPlainText().strip()
+        CONFIG["qwen3_voice_prompt_en"] = self.qwen3_voice_prompt_en.toPlainText().strip()
+        # Keep legacy key in sync with zh prompt for backward compat
+        CONFIG["qwen3_tts_voice_prompt"] = CONFIG["qwen3_voice_prompt_zh"]
         CONFIG["qwen3_python_path"] = self.qwen3_python_path_input.text().strip()
+
+        # Save multilingual audio field selections
+        CONFIG["explanation_audio_zh_field"] = self.audio_zh_field_combo.currentText()
+        CONFIG["explanation_audio_ja_field"] = self.audio_ja_field_combo.currentText()
+        CONFIG["explanation_audio_en_field"] = self.audio_en_field_combo.currentText()
 
         # Save UI preference settings
         CONFIG["disable_audio"] = self.disable_audio_checkbox.isChecked()
@@ -714,32 +787,90 @@ class ConfigDialog(QDialog):
 
     def test_qwen3_tts(self):
         """Generate a short sample with the current Qwen3-TTS settings and play it."""
-        voice_prompt = self.qwen3_voice_prompt_input.toPlainText().strip()
+    def test_qwen3_tts(self, lang: str = "zh"):
+        """Generate a short sample for the given language (zh, ja, en)."""
+        from ...api_handler import _get_venv_python, _ensure_server_running, _server_alive, generate_audio_qwen3
+
         model = self.qwen3_model_combo.currentText()
+
+        # Map lang → button, prompt widget, sample text
+        lang_config = {
+            "zh": {
+                "btn": self.qwen3_test_btn_zh,
+                "prompt_widget": self.qwen3_voice_prompt_zh,
+                "sample": "你好！这是一个中文测试。",
+                "label": "🇨🇳 CN",
+                "default_prompt": "高音萝莉女声，音调偏高且起伏明显，语气活泼可爱，带有轻微撒娇感",
+            },
+            "ja": {
+                "btn": self.qwen3_test_btn_ja,
+                "prompt_widget": self.qwen3_voice_prompt_ja,
+                "sample": "こんにちは！これは日本語のテストです。",
+                "label": "🇯🇵 JP",
+                "default_prompt": "明るく自然な日本語女性の声、標準的なアクセント、アニメキャラクターらしい話し方",
+            },
+            "en": {
+                "btn": self.qwen3_test_btn_en,
+                "prompt_widget": self.qwen3_voice_prompt_en,
+                "sample": "Hello! This is an English test.",
+                "label": "🇬🇧 EN",
+                "default_prompt": "Bright and clear young female voice, natural English pronunciation, friendly anime style",
+            },
+        }
+
+        cfg = lang_config[lang]
+        btn = cfg["btn"]
+        voice_prompt = cfg["prompt_widget"].toPlainText().strip() or cfg["default_prompt"]
+        sample_text = cfg["sample"]
 
         if not voice_prompt:
             QMessageBox.warning(self, "Missing Voice Prompt",
-                                "Please enter a voice style prompt before testing.")
+                                f"Please enter a voice style prompt for {cfg['label']} before testing.")
             return
 
-        self.qwen3_test_btn.setEnabled(False)
-        self.qwen3_test_btn.setText("Generating sample…")
+        # Flush all current prompts into CONFIG so helpers pick them up without Save
+        CONFIG["qwen3_python_path"] = self.qwen3_python_path_input.text().strip()
+        CONFIG["qwen3_tts_model"] = model
+        CONFIG["qwen3_voice_prompt_zh"] = self.qwen3_voice_prompt_zh.toPlainText().strip()
+        CONFIG["qwen3_voice_prompt_ja"] = self.qwen3_voice_prompt_ja.toPlainText().strip()
+        CONFIG["qwen3_voice_prompt_en"] = self.qwen3_voice_prompt_en.toPlainText().strip()
 
-        sample_text = "你好！这是一个测试。"
+        # Disable all 3 buttons while running to prevent concurrent tests
+        all_btns = [self.qwen3_test_btn_zh, self.qwen3_test_btn_ja, self.qwen3_test_btn_en]
+        for b in all_btns:
+            b.setEnabled(False)
+        btn.setText("Starting…")
+
+        def set_label(text):
+            mw.taskman.run_on_main(lambda: btn.setText(text))
+
+        def reset_btns():
+            self.qwen3_test_btn_zh.setEnabled(True)
+            self.qwen3_test_btn_ja.setEnabled(True)
+            self.qwen3_test_btn_en.setEnabled(True)
+            self.qwen3_test_btn_zh.setText("🇨🇳 Test CN")
+            self.qwen3_test_btn_ja.setText("🇯🇵 Test JP")
+            self.qwen3_test_btn_en.setText("🇬🇧 Test EN")
 
         def run_test():
             try:
-                sound_tag = backend_generate_audio(
-                    api_key=None,
-                    text=sample_text,
-                    engine_override="Qwen3-TTS",
-                    qwen3_model=model,
-                    qwen3_voice_prompt=voice_prompt,
-                    save_to_collection_override=True,
-                )
+                venv_python = _get_venv_python()
+                if not venv_python:
+                    raise Exception(
+                        "venv Python not found.\n"
+                        "Set the Venv Python path field above, e.g.:\n"
+                        r"C:\Github\qwen-tts\qwen-tts-env\Scripts\python.exe"
+                    )
+
+                if not _server_alive():
+                    set_label("Loading model… (~60s)")
+                    _ensure_server_running(venv_python)
+
+                set_label("Generating…")
+                sound_tag = generate_audio_qwen3(sample_text, model=model, voice_prompt=voice_prompt)
+
                 def on_done():
-                    self.qwen3_test_btn.setEnabled(True)
-                    self.qwen3_test_btn.setText("Test Qwen3-TTS (generates a sample)")
+                    reset_btns()
                     if sound_tag and sound_tag.startswith("[sound:") and sound_tag.endswith("]"):
                         filename = sound_tag[7:-1]
                         try:
@@ -747,19 +878,20 @@ class ConfigDialog(QDialog):
                             play(filename)
                         except Exception as e:
                             QMessageBox.critical(self, "Playback Error",
-                                                 f"Audio was generated but could not be played: {e}")
+                                                 f"Audio generated but could not be played: {e}")
                     else:
                         QMessageBox.critical(self, "Test Failed",
                                              "Qwen3-TTS did not return a valid audio file.\n\n"
                                              "Make sure the model is downloaded and your GPU has enough VRAM.")
                 mw.taskman.run_on_main(on_done)
+
             except Exception as e:
-                debug_log(f"Qwen3-TTS test error: {e}")
+                debug_log(f"Qwen3-TTS test error ({lang}): {e}")
+                err_str = str(e)
                 def on_error():
-                    self.qwen3_test_btn.setEnabled(True)
-                    self.qwen3_test_btn.setText("Test Qwen3-TTS (generates a sample)")
+                    reset_btns()
                     QMessageBox.critical(self, "Test Error",
-                                         f"An error occurred while testing Qwen3-TTS:\n\n{e}")
+                                         f"An error occurred while testing Qwen3-TTS ({cfg['label']}):\n\n{err_str}")
                 mw.taskman.run_on_main(on_error)
 
         import threading

@@ -26,14 +26,19 @@ CONFIG: Dict[str, object] = {
     "openai_key": "",
     "openai_model": "gpt-4.1",
     "gpt_prompt": (
-        "Please write a short explanation of the word '{word}' using the context of "
-        "the original sentence: '{sentence}'. Write an explanation that helps a "
-        "Japanese beginner understand the word and how it is used with this context "
-        "as an example. Explain it in the same way a native would explain it to a "
-        "child. Don't use any English, only use simpler Japanese. Don't write the "
-        "furigana for any of the words in brackets after the word. Don't start with "
-        "stuff like という言葉を簡単に説明するね, just dive straight into explaining after "
-        "starting with the word."
+        "Please write an explanation of the word '{word}' using the context of "
+        "the original sentence: '{sentence}'. {word} and {sentence} are in Chinese "
+        "so do not write {word} or {sentence} in the response as it will be incorrectly voiced.\n\n"
+        "Return your response in exactly this format with XML tags — no other text outside the tags:\n\n"
+        "<ja>Write a Japanese explanation here. Explain the core meaning of the word and how it is "
+        "used in this sentence. Write for a Japanese native around 13 years old, like explaining to a friend. "
+        "Start with the core meaning, then explain how it appears in the sentence. "
+        "DO NOT use English. DO NOT write furigana in brackets. DO NOT start with introductory phrases "
+        "like という言葉を簡単に説明するね — dive straight in. Katakana words are fine if natives use them.</ja>\n\n"
+        "<zh>Write a Chinese (Mandarin) explanation of the same word here, for a native Chinese speaker "
+        "around 13 years old. Explain the meaning and usage naturally in Chinese. "
+        "DO NOT use English or Japanese.</zh>\n\n"
+        "<en>Write a concise English definition of the word here — just the meaning, no preamble.</en>"
     ),
 
     # === TTS/Audio Generation Settings ===
@@ -45,10 +50,23 @@ CONFIG: Dict[str, object] = {
     "aivisspeech_style_id": None,
     "voicevox_style_id": None,
 
+    # === Multilingual Audio Fields ===
+    # Set these to field names in your note type, or leave blank to skip that language
+    "explanation_audio_zh_field": "AI Audio ZH",
+    "explanation_audio_ja_field": "AI Audio JP",
+    "explanation_audio_en_field": "AI Audio EN",
+
     # === Qwen3-TTS Settings ===
     "qwen3_tts_model": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
-    "qwen3_tts_voice_prompt": "高音萝莉女声，音调偏高且起伏明显，语气活泼可爱，带有轻微撒娇感",
     "qwen3_python_path": "",  # e.g. C:\Github\qwen-tts\qwen-tts-env\Scripts\python.exe
+
+    # Per-language voice prompts for Qwen3-TTS
+    "qwen3_voice_prompt_zh": "高音萝莉女声，音调偏高且起伏明显，语气活泼可爱，带有轻微撒娇感",
+    "qwen3_voice_prompt_ja": "明るく自然な日本語女性の声、標準的なアクセント、アニメキャラクターらしい話し方",
+    "qwen3_voice_prompt_en": "Bright and clear young female voice, natural English pronunciation, friendly anime style",
+
+    # Legacy single-field prompt kept for backward compat with non-multilingual mode
+    "qwen3_tts_voice_prompt": "高音萝莉女声，音调偏高且起伏明显，语气活泼可爱，带有轻微撒娇感",
 
     # === Feature Toggles & UI Preferences ===
     "disable_text_generation": False,

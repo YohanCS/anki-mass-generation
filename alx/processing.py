@@ -6,7 +6,12 @@ import os
 import traceback
 from .config import CONFIG
 from .logging import debug_log
-from ..api_handler import generate_audio as backend_generate_audio, process_with_openai
+from ..api_handler import (
+    generate_audio as backend_generate_audio,
+    process_with_openai,
+    parse_multilingual_explanation,
+    generate_audio_qwen3_multilingual,
+)
 
 
 def process_note_debug(note, generate_text, generate_audio, override_text, override_audio, progress_callback=None):
@@ -220,105 +225,117 @@ def process_note_debug(note, generate_text, generate_audio, override_text, overr
         
         # Audio generation using the selected TTS engine
         debug_log("Starting audio generation step")
-        audio_path_result = [None]
         audio_error = None
 
-        # Check if audio generation should be performed
         if should_generate_audio:
             debug_log("Audio generation needed - proceeding with TTS")
-            # Only generate if the audio field exists
-            if CONFIG["explanation_audio_field"] in note:
-                debug_log(f"Audio field found: {CONFIG['explanation_audio_field']}")
+
+            is_multilingual_qwen3 = (
+                CONFIG.get("tts_engine") == "Qwen3-TTS"
+                and any(
+                    CONFIG.get(f"explanation_audio_{lang}_field", "")
+                    and CONFIG.get(f"explanation_audio_{lang}_field", "") in note
+                    for lang in ("zh", "ja", "en")
+                )
+            )
+
+            if is_multilingual_qwen3:
+                # ── Multilingual Qwen3-TTS path ──────────────────────────
+                debug_log("Qwen3-TTS multilingual mode: parsing language sections from explanation")
                 try:
-                    # Update progress callback
                     if progress_callback and callable(progress_callback):
-                        progress_callback(f"Generating audio with {CONFIG['tts_engine']}...")
-                    # Generate audio using the explanation text (existing or newly generated)
-                    debug_log(f"Calling generate_audio with engine: {CONFIG['tts_engine']}")
-                    debug_log(f"Audio generation parameters: api_key_length={len(CONFIG.get('openai_key', ''))}, explanation_length={len(explanation)}")
+                        progress_callback("Generating multilingual audio with Qwen3-TTS...")
 
-                    # Prepare parameters for audio generation with detailed logging
-                    api_key = CONFIG.get("openai_key", "")
-                    aivis_style_id = CONFIG.get("aivisspeech_style_id") if CONFIG['tts_engine'] == 'AivisSpeech' else None
-                    voicevox_style_id = CONFIG.get("voicevox_style_id") if CONFIG['tts_engine'] == 'VoiceVox' else None
+                    sections = parse_multilingual_explanation(explanation)
+                    model = CONFIG.get("qwen3_tts_model", "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign")
+                    audio_results = generate_audio_qwen3_multilingual(sections, model=model)
 
-                    debug_log(
-                        f"Calling generate_audio with: api_key='{api_key[:10] if api_key else 'None'}...', "
-                        f"text_length={len(explanation)}, aivis_style_id={aivis_style_id}, "
-                        f"voicevox_style_id={voicevox_style_id}"
-                    )
+                    # Save each language's audio to its field
+                    lang_field_map = {
+                        "zh": CONFIG.get("explanation_audio_zh_field", ""),
+                        "ja": CONFIG.get("explanation_audio_ja_field", ""),
+                        "en": CONFIG.get("explanation_audio_en_field", ""),
+                    }
+                    any_audio_saved = False
+                    for lang, field_name in lang_field_map.items():
+                        if not field_name or field_name not in note:
+                            debug_log(f"Multilingual audio: skipping {lang} — field '{field_name}' not in note")
+                            continue
+                        sound_tag = audio_results.get(lang, "")
+                        if sound_tag:
+                            note[field_name] = sound_tag
+                            debug_log(f"Multilingual audio: saved {lang} → {field_name}")
+                            any_audio_saved = True
+                        else:
+                            note[field_name] = "[Audio generation failed]"
+                            debug_log(f"Multilingual audio: no audio for {lang}, placeholder saved")
 
-                    selected_style_override = aivis_style_id if aivis_style_id is not None else voicevox_style_id
+                    if not any_audio_saved:
+                        audio_error = "Qwen3-TTS multilingual: no audio was generated for any language section"
 
-                    # Build Qwen3-TTS kwargs if that engine is selected
-                    qwen3_kwargs = {}
-                    if CONFIG['tts_engine'] == 'Qwen3-TTS':
-                        qwen3_kwargs['qwen3_model'] = CONFIG.get(
-                            'qwen3_tts_model', 'Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign'
-                        )
-                        qwen3_kwargs['qwen3_voice_prompt'] = CONFIG.get(
-                            'qwen3_tts_voice_prompt',
-                            '高音萝莉女声，音调偏高且起伏明显，语气活泼可爱，带有轻微撒娇感'
-                        )
-                        debug_log(f"Qwen3-TTS model: {qwen3_kwargs['qwen3_model']}")
-                        debug_log(f"Qwen3-TTS voice prompt: {qwen3_kwargs['qwen3_voice_prompt']}")
-
-                    audio_path = backend_generate_audio(
-                        api_key,
-                        explanation,
-                        style_id_override=selected_style_override,
-                        **qwen3_kwargs
-                    )
-                    if audio_path:
-                        debug_log(f"Audio generated successfully: {audio_path}")
-                        audio_path_result[0] = audio_path
-                    else:
-                        audio_error = f"{CONFIG['tts_engine']} audio generation failed: No audio file returned"
-                        debug_log(audio_error)
                 except Exception as e:
-                    audio_error = f"{CONFIG['tts_engine']} audio generation error: {str(e)}"
-                    debug_log(f"Error during audio generation: {str(e)}")
+                    audio_error = f"Qwen3-TTS multilingual audio error: {str(e)}"
+                    debug_log(f"Error during multilingual audio generation: {str(e)}")
 
-                # Save audio result to note if generation was successful
-                if audio_path_result[0]:
-                    # If the returned value is already an Anki sound tag, use it as-is,
-                    # otherwise wrap the filename in one. This prevents double "[sound:" tags
-                    if str(audio_path_result[0]).startswith("[sound:") and str(audio_path_result[0]).endswith("]"):
-                        note[CONFIG["explanation_audio_field"]] = audio_path_result[0]
-                    else:
-                        audio_filename = os.path.basename(audio_path_result[0])
-                        note[CONFIG["explanation_audio_field"]] = f"[sound:{audio_filename}]"
-                    debug_log("Audio reference saved to note")
-                else:
-                    # Audio generation failed - add placeholder and prepare to return error
-                    note[CONFIG["explanation_audio_field"]] = "[Audio generation failed]"
-                    debug_log("Audio generation failed, placeholder saved")
             else:
-                audio_error = f"Audio field '{CONFIG['explanation_audio_field']}' not found in note"
-                debug_log(audio_error)
-        
+                # ── Single-field legacy path (all other engines + single-field Qwen3) ──
+                audio_path_result = [None]
+
+                if CONFIG["explanation_audio_field"] in note:
+                    debug_log(f"Audio field found: {CONFIG['explanation_audio_field']}")
+                    try:
+                        if progress_callback and callable(progress_callback):
+                            progress_callback(f"Generating audio with {CONFIG['tts_engine']}...")
+
+                        api_key = CONFIG.get("openai_key", "")
+                        aivis_style_id = CONFIG.get("aivisspeech_style_id") if CONFIG["tts_engine"] == "AivisSpeech" else None
+                        voicevox_style_id = CONFIG.get("voicevox_style_id") if CONFIG["tts_engine"] == "VoiceVox" else None
+                        selected_style_override = aivis_style_id if aivis_style_id is not None else voicevox_style_id
+
+                        qwen3_kwargs = {}
+                        if CONFIG["tts_engine"] == "Qwen3-TTS":
+                            qwen3_kwargs["qwen3_model"] = CONFIG.get("qwen3_tts_model", "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign")
+                            qwen3_kwargs["qwen3_voice_prompt"] = CONFIG.get("qwen3_tts_voice_prompt", "高音萝莉女声，音调偏高且起伏明显，语气活泼可爱，带有轻微撒娇感")
+
+                        audio_path = backend_generate_audio(
+                            api_key,
+                            explanation,
+                            style_id_override=selected_style_override,
+                            **qwen3_kwargs
+                        )
+                        if audio_path:
+                            audio_path_result[0] = audio_path
+                        else:
+                            audio_error = f"{CONFIG['tts_engine']} audio generation failed: No audio file returned"
+                    except Exception as e:
+                        audio_error = f"{CONFIG['tts_engine']} audio generation error: {str(e)}"
+                        debug_log(f"Error during audio generation: {str(e)}")
+
+                    if audio_path_result[0]:
+                        tag = audio_path_result[0]
+                        if not (tag.startswith("[sound:") and tag.endswith("]")):
+                            tag = f"[sound:{os.path.basename(tag)}]"
+                        note[CONFIG["explanation_audio_field"]] = tag
+                        debug_log("Audio reference saved to note")
+                    else:
+                        note[CONFIG["explanation_audio_field"]] = "[Audio generation failed]"
+                        debug_log("Audio generation failed, placeholder saved")
+                else:
+                    audio_error = f"Audio field '{CONFIG['explanation_audio_field']}' not found in note"
+                    debug_log(audio_error)
+
+                # Legacy explanationAudio field compat
+                if audio_path_result[0] if "audio_path_result" in dir() else False:
+                    if "explanationAudio" in note and CONFIG["explanation_audio_field"] != "explanationAudio":
+                        tag = audio_path_result[0]
+                        if not (tag.startswith("[sound:") and tag.endswith("]")):
+                            tag = f"[sound:{os.path.basename(tag)}]"
+                        note["explanationAudio"] = tag
+
         elif CONFIG.get("disable_audio", False):
             debug_log("Audio generation is disabled in settings - leaving audio field unchanged")
-            # Don't modify the audio field when audio generation is disabled
         else:
             debug_log("Audio generation not needed - leaving audio field unchanged")
-            # Don't modify the audio field when audio override is not requested
-        
-        # Also handle the "explanationAudio" field (with correct spelling) if it exists
-        if should_generate_audio and "explanationAudio" in note and CONFIG["explanation_audio_field"] != "explanationAudio":
-            debug_log("Also updating 'explanationAudio' field (correct spelling)")
-            if audio_path_result[0]:
-                # If the returned value is already an Anki sound tag, use it as-is,
-                # otherwise wrap the filename in one. This prevents double "[sound:" tags
-                if str(audio_path_result[0]).startswith("[sound:") and str(audio_path_result[0]).endswith("]"):
-                    note["explanationAudio"] = audio_path_result[0]
-                else:
-                    audio_filename = os.path.basename(audio_path_result[0])
-                    note["explanationAudio"] = f"[sound:{audio_filename}]"
-                debug_log("Audio reference saved to explanationAudio field (correct spelling)")
-            else:
-                note["explanationAudio"] = "[Audio generation failed]"
-                debug_log("Audio generation failed, setting placeholder in explanationAudio field")
         
         # Save changes - wrap in try/except to catch any issues
         try:

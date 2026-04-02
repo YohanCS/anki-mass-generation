@@ -588,6 +588,82 @@ def _send_request(payload: dict, timeout: int = 120) -> dict:
         s.close()
 
 
+def parse_multilingual_explanation(text: str) -> dict:
+    """
+    Extract <zh>, <ja>, <en> tagged sections from GPT output.
+
+    Returns a dict like:
+        {"zh": "...", "ja": "...", "en": "..."}
+    Any missing tag returns an empty string for that language.
+    """
+    import re
+    result = {}
+    for lang in ("zh", "ja", "en"):
+        match = re.search(rf"<{lang}>(.*?)</{lang}>", text, re.DOTALL | re.IGNORECASE)
+        result[lang] = match.group(1).strip() if match else ""
+    debug_log(f"parse_multilingual_explanation: zh={len(result['zh'])}ch, ja={len(result['ja'])}ch, en={len(result['en'])}ch")
+    return result
+
+
+def generate_audio_qwen3_multilingual(sections: dict, model: str) -> dict:
+    """
+    Generate audio for each non-empty language section using Qwen3-TTS.
+
+    Args:
+        sections: dict with keys "zh", "ja", "en" and text values
+        model:    Qwen3-TTS model name
+
+    Returns:
+        dict with keys "zh", "ja", "en" and "[sound:filename.wav]" values
+        (empty string for any language that had no text or failed)
+    """
+    from . import CONFIG
+    import uuid
+
+    voice_prompts = {
+        "zh": CONFIG.get("qwen3_voice_prompt_zh", "高音萝莉女声，音调偏高且起伏明显，语气活泼可爱，带有轻微撒娇感"),
+        "ja": CONFIG.get("qwen3_voice_prompt_ja", "明るく自然な日本語女性の声、標準的なアクセント、アニメキャラクターらしい話し方"),
+        "en": CONFIG.get("qwen3_voice_prompt_en", "Bright and clear young female voice, natural English pronunciation, friendly anime style"),
+    }
+
+    venv_python = _get_venv_python()
+    if not venv_python:
+        raise Exception(
+            "Qwen3-TTS: venv Python not found.\n"
+            "Set 'qwen3_python_path' in the add-on settings."
+        )
+    _ensure_server_running(venv_python)
+
+    media_dir = os.path.join(mw.pm.profileFolder(), "collection.media")
+    os.makedirs(media_dir, exist_ok=True)
+
+    results = {"zh": "", "ja": "", "en": ""}
+    for lang, text in sections.items():
+        if not text.strip():
+            debug_log(f"Qwen3-TTS multilingual: skipping empty {lang} section")
+            continue
+        filename = f"qwen3tts_{lang}_{uuid.uuid4().hex[:10]}.wav"
+        output_path = os.path.join(media_dir, filename)
+        debug_log(f"Qwen3-TTS multilingual: generating {lang} audio — {len(text)} chars")
+        try:
+            response = _send_request({
+                "text": text,
+                "model": model,
+                "voice_prompt": voice_prompts[lang],
+                "output_path": output_path,
+            })
+            if response.get("status") == "ok" and os.path.isfile(output_path) and os.path.getsize(output_path) > 100:
+                results[lang] = f"[sound:{filename}]"
+                debug_log(f"Qwen3-TTS multilingual: {lang} saved → {filename}")
+            else:
+                err = response.get("message", "unknown error")
+                debug_log(f"Qwen3-TTS multilingual: {lang} failed — {err}")
+        except Exception as e:
+            debug_log(f"Qwen3-TTS multilingual: {lang} exception — {e}")
+
+    return results
+
+
 # Qwen3-TTS generation
 def generate_audio_qwen3(text, model="Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign", voice_prompt="高音萝莉女声，音调偏高且起伏明显，语气活泼可爱，带有轻微撒娇感"):
     """
