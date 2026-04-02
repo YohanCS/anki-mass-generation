@@ -418,14 +418,184 @@ def generate_audio_aivisspeech(text, style_id=None, base_url="http://127.0.0.1:1
     finally:
         debug_log("=== AUDIO GENERATION END (AivisSpeech) ===")
 
+# ── Qwen3-TTS persistent server helpers ──────────────────────────────────────
+#
+# Instead of spawning a new Python process per card (slow: ~30-60s each due to
+# model loading), we start a tiny TCP server once in the venv Python.  It loads
+# the model into GPU memory on startup, then accepts JSON requests and returns
+# the path to the generated WAV file.  Subsequent cards take only the actual
+# inference time (~1-3s).
+#
+# Protocol (newline-delimited JSON over TCP, port 57321):
+#   request  → {"text": "...", "model": "...", "voice_prompt": "...", "output_path": "..."}
+#   response → {"status": "ok", "path": "..."} | {"status": "error", "message": "..."}
+
+_QWEN3_SERVER_PORT = 57321
+_QWEN3_SERVER_HOST = "127.0.0.1"
+
+# Server script written to disk next to api_handler.py and run once in the venv
+_QWEN3_SERVER_SCRIPT = """\
+import sys, os, json, socket, threading, traceback
+import torch, soundfile as sf
+from qwen_tts import Qwen3TTSModel
+
+HOST = "127.0.0.1"
+PORT = 57321
+
+# ── Model cache: keyed by model name so switching models hot-reloads once ──
+_model_cache = {}
+
+def get_model(model_name):
+    if model_name not in _model_cache:
+        print(f"[qwen3_server] Loading model: {model_name}", flush=True)
+        _model_cache[model_name] = Qwen3TTSModel.from_pretrained(
+            model_name,
+            device_map="cuda:0",
+            dtype=torch.bfloat16,
+        )
+        # Warm up: run a short dummy inference so the first real card is fast
+        try:
+            _model_cache[model_name].generate_voice_design(
+                text=["测试"],
+                language=["Chinese"],
+                instruct=["正常语速女声"],
+            )
+        except Exception:
+            pass
+        print(f"[qwen3_server] Model ready: {model_name}", flush=True)
+    return _model_cache[model_name]
+
+def handle_client(conn):
+    try:
+        data = b""
+        while not data.endswith(b"\\n"):
+            chunk = conn.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+        req = json.loads(data.decode("utf-8"))
+        text        = req["text"]
+        model_name  = req["model"]
+        voice_prompt = req["voice_prompt"]
+        output_path = req["output_path"]
+
+        model = get_model(model_name)
+        wavs, sr = model.generate_voice_design(
+            text=[text],
+            language=["Chinese"],
+            instruct=[voice_prompt],
+        )
+        sf.write(output_path, wavs[0], sr)
+        resp = json.dumps({"status": "ok", "path": output_path}) + "\\n"
+    except Exception as e:
+        resp = json.dumps({"status": "error", "message": traceback.format_exc()}) + "\\n"
+    finally:
+        conn.sendall(resp.encode("utf-8"))
+        conn.close()
+
+def run_server():
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind((HOST, PORT))
+    srv.listen(8)
+    print(f"[qwen3_server] Listening on {HOST}:{PORT}", flush=True)
+    while True:
+        conn, _ = srv.accept()
+        threading.Thread(target=handle_client, args=(conn,), daemon=True).start()
+
+if __name__ == "__main__":
+    run_server()
+"""
+
+
+def _get_venv_python():
+    """Return path to the venv Python, checking config then common locations."""
+    from .alx.config import CONFIG
+    venv_python = CONFIG.get("qwen3_python_path", "")
+    if venv_python and os.path.isfile(venv_python):
+        return venv_python
+    candidates = [
+        r"C:\Github\qwen-tts\qwen-tts-env\Scripts\python.exe",
+        os.path.join(os.path.expanduser("~"), "qwen-tts-env", "Scripts", "python.exe"),
+        os.path.join(os.path.expanduser("~"), "Github", "qwen-tts", "qwen-tts-env", "Scripts", "python.exe"),
+    ]
+    for c in candidates:
+        if os.path.isfile(c):
+            debug_log(f"Qwen3-TTS: Auto-detected venv Python: {c}")
+            return c
+    return None
+
+
+def _server_alive():
+    """Return True if the server is already listening on the port."""
+    import socket as _socket
+    try:
+        s = _socket.create_connection((_QWEN3_SERVER_HOST, _QWEN3_SERVER_PORT), timeout=1)
+        s.close()
+        return True
+    except OSError:
+        return False
+
+
+def _ensure_server_running(venv_python):
+    """Start the background server process if it isn't already running."""
+    if _server_alive():
+        debug_log("Qwen3-TTS: Server already running.")
+        return
+
+    # Write the server script next to this file so the venv can import nothing
+    addon_dir = os.path.dirname(os.path.abspath(__file__))
+    server_script_path = os.path.join(addon_dir, "qwen3_server.py")
+    with open(server_script_path, "w", encoding="utf-8") as f:
+        f.write(_QWEN3_SERVER_SCRIPT)
+
+    debug_log(f"Qwen3-TTS: Starting server with {venv_python}")
+    creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    subprocess.Popen(
+        [venv_python, server_script_path],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=creation_flags,
+    )
+
+    # Wait up to 120 s for the model to load and the server to come up
+    debug_log("Qwen3-TTS: Waiting for server to become ready (model loading)...")
+    for _ in range(120):
+        if _server_alive():
+            debug_log("Qwen3-TTS: Server is ready.")
+            return
+        time.sleep(1)
+    raise Exception(
+        "Qwen3-TTS server did not start within 120 seconds.\n"
+        "Check that the venv Python path is correct and the model is downloaded."
+    )
+
+
+def _send_request(payload: dict, timeout: int = 120) -> dict:
+    """Send a JSON request to the server and return the parsed response."""
+    import socket as _socket
+    s = _socket.create_connection((_QWEN3_SERVER_HOST, _QWEN3_SERVER_PORT), timeout=timeout)
+    try:
+        s.sendall((json.dumps(payload) + "\n").encode("utf-8"))
+        data = b""
+        while not data.endswith(b"\n"):
+            chunk = s.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+        return json.loads(data.decode("utf-8"))
+    finally:
+        s.close()
+
+
 # Qwen3-TTS generation
 def generate_audio_qwen3(text, model="Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign", voice_prompt="高音萝莉女声，音调偏高且起伏明显，语气活泼可爱，带有轻微撒娇感"):
     """
-    Generate audio using Qwen3-TTS running in a separate Python venv.
+    Generate audio via the persistent Qwen3-TTS background server.
 
-    Anki uses Python 3.9 which is too old for qwen-tts/PyTorch, so this
-    function calls out to a small helper script via subprocess using the
-    venv Python the user set up during installation.
+    The server process is started once (loading the model into GPU memory),
+    then all subsequent cards are handled by sending a lightweight socket
+    request — no new process, no re-loading the model.
 
     Returns:
     - str|None: Anki sound tag "[sound:filename.wav]", or None on failure.
@@ -437,102 +607,42 @@ def generate_audio_qwen3(text, model="Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign", voi
 
     try:
         import uuid
-        import subprocess
-        import sys
-        from . import CONFIG
 
-        # ── Find the venv Python ──────────────────────────────────────────
-        # First check if the user has set a custom path in config,
-        # otherwise fall back to common locations.
-        venv_python = CONFIG.get("qwen3_python_path", "")
-
-        if not venv_python or not os.path.isfile(venv_python):
-            # Try the default location from the setup guide
-            candidates = [
-                r"C:\Github\qwen-tts\qwen-tts-env\Scripts\python.exe",
-                os.path.join(os.path.expanduser("~"), "qwen-tts-env", "Scripts", "python.exe"),
-                os.path.join(os.path.expanduser("~"), "Github", "qwen-tts", "qwen-tts-env", "Scripts", "python.exe"),
-            ]
-            for candidate in candidates:
-                if os.path.isfile(candidate):
-                    venv_python = candidate
-                    debug_log(f"Qwen3-TTS: Auto-detected venv Python at: {venv_python}")
-                    break
-
-        if not venv_python or not os.path.isfile(venv_python):
-            debug_log("Qwen3-TTS: Could not find venv Python. Set 'qwen3_python_path' in config.")
+        venv_python = _get_venv_python()
+        if not venv_python:
             raise Exception(
-                "Qwen3-TTS: venv Python not found.\n\n"
-                "Please add 'qwen3_python_path' to your add-on config pointing to your "
-                "qwen-tts-env Python, e.g.:\n"
+                "Qwen3-TTS: venv Python not found.\n"
+                "Set 'qwen3_python_path' in the add-on settings, e.g.:\n"
                 r"C:\Github\qwen-tts\qwen-tts-env\Scripts\python.exe"
             )
 
-        # ── Save text and prompt to temp files to avoid shell escaping issues ─
-        import tempfile
+        _ensure_server_running(venv_python)
+
         media_dir = os.path.join(mw.pm.profileFolder(), "collection.media")
         os.makedirs(media_dir, exist_ok=True)
         filename = f"qwen3tts_{uuid.uuid4().hex[:12]}.wav"
         output_path = os.path.join(media_dir, filename)
 
-        # Inline helper script — no separate file needed on disk
-        helper_script = f"""
-import sys, torch, soundfile as sf
-from qwen_tts import Qwen3TTSModel
+        debug_log(f"Qwen3-TTS: Sending request to server — text length={len(text)}")
+        response = _send_request({
+            "text": text,
+            "model": model,
+            "voice_prompt": voice_prompt,
+            "output_path": output_path,
+        })
 
-model_name = {repr(model)}
-voice_prompt = {repr(voice_prompt)}
-text = {repr(text)}
-output_path = {repr(output_path)}
-
-# Cache model between calls using a module-level attribute
-if not hasattr(sys, "_qwen3_model_cache"):
-    sys._qwen3_model_cache = {{}}
-
-if model_name not in sys._qwen3_model_cache:
-    sys._qwen3_model_cache[model_name] = Qwen3TTSModel.from_pretrained(
-        model_name,
-        device_map="cuda:0",
-        dtype=torch.bfloat16,
-    )
-
-m = sys._qwen3_model_cache[model_name]
-wavs, sr = m.generate_voice_design(
-    text=[text],
-    language=["Chinese"],
-    instruct=[voice_prompt],
-)
-sf.write(output_path, wavs[0], sr)
-print("OK:" + output_path)
-"""
-
-        debug_log(f"Qwen3-TTS: Calling venv Python: {venv_python}")
-        debug_log(f"Qwen3-TTS: Model={model}, output={output_path}")
-
-        result = subprocess.run(
-            [venv_python, "-c", helper_script],
-            capture_output=True,
-            text=True,
-            timeout=300,  # 5 min — first run loads model weights
-        )
-
-        if result.returncode != 0:
-            debug_log(f"Qwen3-TTS: subprocess failed (rc={result.returncode})")
-            debug_log(f"Qwen3-TTS stderr: {result.stderr[-1000:]}")
-            raise Exception(f"Qwen3-TTS subprocess error:\n{result.stderr[-500:]}")
-
-        debug_log(f"Qwen3-TTS: subprocess stdout: {result.stdout.strip()}")
+        if response.get("status") != "ok":
+            err = response.get("message", "Unknown server error")
+            debug_log(f"Qwen3-TTS: Server returned error: {err}")
+            raise Exception(f"Qwen3-TTS server error:\n{err}")
 
         if os.path.isfile(output_path) and os.path.getsize(output_path) > 100:
             debug_log(f"Qwen3-TTS: Audio saved successfully: {output_path}")
             return f"[sound:{filename}]"
         else:
-            debug_log("Qwen3-TTS: Output file missing or too small after subprocess.")
+            debug_log("Qwen3-TTS: Output file missing or too small.")
             return None
 
-    except subprocess.TimeoutExpired:
-        debug_log("Qwen3-TTS: subprocess timed out (>5 min).")
-        raise Exception("Qwen3-TTS timed out. The model may still be downloading — try again in a few minutes.")
     except Exception as e:
         debug_log(f"Qwen3-TTS: Error: {str(e)}")
         debug_log(traceback.format_exc())
