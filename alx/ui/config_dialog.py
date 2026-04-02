@@ -793,34 +793,37 @@ class ConfigDialog(QDialog):
 
         model = self.qwen3_model_combo.currentText()
 
-        # Map lang → button, prompt widget, sample text
+        # Map lang → button, sample text, voice prompt
         lang_config = {
             "zh": {
                 "btn": self.qwen3_test_btn_zh,
-                "prompt_widget": self.qwen3_voice_prompt_zh,
                 "sample": "你好！这是一个中文测试。",
                 "label": "🇨🇳 CN",
-                "default_prompt": "高音萝莉女声，音调偏高且起伏明显，语气活泼可爱，带有轻微撒娇感",
+                "model": model,
+                "voice_prompt": self.qwen3_voice_prompt_zh.toPlainText().strip() or "高音萝莉女声，音调偏高且起伏明显，语气活泼可爱，带有轻微撒娇感",
+                "language": "Chinese",
             },
             "ja": {
                 "btn": self.qwen3_test_btn_ja,
-                "prompt_widget": self.qwen3_voice_prompt_ja,
                 "sample": "こんにちは！これは日本語のテストです。",
                 "label": "🇯🇵 JP",
-                "default_prompt": "明るく自然な日本語女性の声、標準的なアクセント、アニメキャラクターらしい話し方",
+                "model": model,
+                "voice_prompt": self.qwen3_voice_prompt_ja.toPlainText().strip() or "明るく自然な日本語女性の声、標準的なアクセント、アニメキャラクターらしい話し方",
+                "language": "Japanese",
             },
             "en": {
                 "btn": self.qwen3_test_btn_en,
-                "prompt_widget": self.qwen3_voice_prompt_en,
                 "sample": "Hello! This is an English test.",
                 "label": "🇬🇧 EN",
-                "default_prompt": "Bright and clear young female voice, natural English pronunciation, friendly anime style",
+                "model": model,
+                "voice_prompt": self.qwen3_voice_prompt_en.toPlainText().strip() or "Bright and clear young female voice, natural English pronunciation, friendly anime style",
+                "language": "English",
             },
         }
 
         cfg = lang_config[lang]
         btn = cfg["btn"]
-        voice_prompt = cfg["prompt_widget"].toPlainText().strip() or cfg["default_prompt"]
+        voice_prompt = cfg["voice_prompt"]
         sample_text = cfg["sample"]
 
         if not voice_prompt:
@@ -828,7 +831,7 @@ class ConfigDialog(QDialog):
                                 f"Please enter a voice style prompt for {cfg['label']} before testing.")
             return
 
-        # Flush all current prompts into CONFIG so helpers pick them up without Save
+        # Flush all current settings into CONFIG so helpers pick them up without Save
         CONFIG["qwen3_python_path"] = self.qwen3_python_path_input.text().strip()
         CONFIG["qwen3_tts_model"] = model
         CONFIG["qwen3_voice_prompt_zh"] = self.qwen3_voice_prompt_zh.toPlainText().strip()
@@ -867,7 +870,11 @@ class ConfigDialog(QDialog):
                     _ensure_server_running(venv_python)
 
                 set_label("Generating…")
-                sound_tag = generate_audio_qwen3(sample_text, model=model, voice_prompt=voice_prompt)
+                sound_tag = generate_audio_qwen3(
+                    sample_text,
+                    model=cfg["model"],
+                    voice_prompt=cfg["voice_prompt"],
+                )
 
                 def on_done():
                     reset_btns()

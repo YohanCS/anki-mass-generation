@@ -14,6 +14,31 @@ from ..api_handler import (
 )
 
 
+def _format_explanation_html(text: str) -> str:
+    """
+    Convert tagged GPT output into clean HTML for display on the Anki card.
+    Sections are separated by a blank line — no language labels shown.
+    Falls back to raw text if no tags are found.
+    """
+    import re
+
+    langs = ("zh", "ja", "en")
+    parts = []
+    found_any = False
+
+    for lang in langs:
+        match = re.search(rf"<{lang}>(.*?)</{lang}>", text, re.DOTALL | re.IGNORECASE)
+        if match:
+            found_any = True
+            content = match.group(1).strip()
+            parts.append(f'<div style="margin-bottom:8px;">{content}</div>')
+
+    if not found_any:
+        return text
+
+    return "\n".join(parts)
+
+
 def process_note_debug(note, generate_text, generate_audio, override_text, override_audio, progress_callback=None):
     """
     Process a note to generate text explanations and/or audio based on user preferences.
@@ -202,7 +227,9 @@ def process_note_debug(note, generate_text, generate_audio, override_text, overr
         if should_generate_text and CONFIG["explanation_field"] in note:
             debug_log(f"Saving newly generated explanation to field: {CONFIG['explanation_field']}")
             try:
-                note[CONFIG["explanation_field"]] = explanation
+                # Format the tagged sections into readable HTML for the card
+                formatted = _format_explanation_html(explanation)
+                note[CONFIG["explanation_field"]] = formatted
                 debug_log("Newly generated explanation saved to note")
                 
                 if progress_callback and callable(progress_callback):
@@ -230,35 +257,49 @@ def process_note_debug(note, generate_text, generate_audio, override_text, overr
         if should_generate_audio:
             debug_log("Audio generation needed - proceeding with TTS")
 
+            zh_field = CONFIG.get("explanation_audio_zh_field", "")
+            ja_field = CONFIG.get("explanation_audio_ja_field", "")
+            en_field = CONFIG.get("explanation_audio_en_field", "")
+            note_keys = list(note.keys())
+            debug_log(f"Multilingual check — engine: {CONFIG.get('tts_engine')}")
+            debug_log(f"Multilingual check — zh_field='{zh_field}', ja_field='{ja_field}', en_field='{en_field}'")
+            debug_log(f"Multilingual check — note keys: {note_keys}")
+
             is_multilingual_qwen3 = (
                 CONFIG.get("tts_engine") == "Qwen3-TTS"
                 and any(
-                    CONFIG.get(f"explanation_audio_{lang}_field", "")
-                    and CONFIG.get(f"explanation_audio_{lang}_field", "") in note
-                    for lang in ("zh", "ja", "en")
+                    field and field in note_keys
+                    for field in (zh_field, ja_field, en_field)
                 )
             )
+            debug_log(f"is_multilingual_qwen3: {is_multilingual_qwen3}")
 
             if is_multilingual_qwen3:
                 # ── Multilingual Qwen3-TTS path ──────────────────────────
                 debug_log("Qwen3-TTS multilingual mode: parsing language sections from explanation")
+                debug_log(f"Explanation text (first 300 chars): {explanation[:300]}")
                 try:
                     if progress_callback and callable(progress_callback):
                         progress_callback("Generating multilingual audio with Qwen3-TTS...")
 
                     sections = parse_multilingual_explanation(explanation)
+                    debug_log(f"Parsed sections — zh: {repr(sections['zh'][:80]) if sections['zh'] else 'EMPTY'}")
+                    debug_log(f"Parsed sections — ja: {repr(sections['ja'][:80]) if sections['ja'] else 'EMPTY'}")
+                    debug_log(f"Parsed sections — en: {repr(sections['en'][:80]) if sections['en'] else 'EMPTY'}")
+
                     model = CONFIG.get("qwen3_tts_model", "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign")
-                    audio_results = generate_audio_qwen3_multilingual(sections, model=model)
+                    # Only voice Chinese and Japanese — English is text-only
+                    sections_to_voice = {k: v for k, v in sections.items() if k in ("zh", "ja")}
+                    audio_results = generate_audio_qwen3_multilingual(sections_to_voice, model=model)
 
                     # Save each language's audio to its field
                     lang_field_map = {
-                        "zh": CONFIG.get("explanation_audio_zh_field", ""),
-                        "ja": CONFIG.get("explanation_audio_ja_field", ""),
-                        "en": CONFIG.get("explanation_audio_en_field", ""),
+                        "zh": zh_field,
+                        "ja": ja_field,
                     }
                     any_audio_saved = False
                     for lang, field_name in lang_field_map.items():
-                        if not field_name or field_name not in note:
+                        if not field_name or field_name not in note_keys:
                             debug_log(f"Multilingual audio: skipping {lang} — field '{field_name}' not in note")
                             continue
                         sound_tag = audio_results.get(lang, "")

@@ -453,7 +453,7 @@ def get_model(model_name):
             device_map="cuda:0",
             dtype=torch.bfloat16,
         )
-        # Warm up: run a short dummy inference so the first real card is fast
+        # Warm up with a short dummy inference so the first real card is fast
         try:
             _model_cache[model_name].generate_voice_design(
                 text=["测试"],
@@ -474,15 +474,16 @@ def handle_client(conn):
                 break
             data += chunk
         req = json.loads(data.decode("utf-8"))
-        text        = req["text"]
-        model_name  = req["model"]
-        voice_prompt = req["voice_prompt"]
-        output_path = req["output_path"]
+        text         = req["text"]
+        model_name   = req["model"]
+        output_path  = req["output_path"]
+        voice_prompt = req.get("voice_prompt", "正常语速女声")
+        language     = req.get("language", "Chinese")
 
         model = get_model(model_name)
         wavs, sr = model.generate_voice_design(
             text=[text],
-            language=["Chinese"],
+            language=[language],
             instruct=[voice_prompt],
         )
         sf.write(output_path, wavs[0], sr)
@@ -626,6 +627,13 @@ def generate_audio_qwen3_multilingual(sections: dict, model: str) -> dict:
         "en": CONFIG.get("qwen3_voice_prompt_en", "Bright and clear young female voice, natural English pronunciation, friendly anime style"),
     }
 
+    # Language codes for the VoiceDesign API
+    lang_codes = {
+        "zh": "Chinese",
+        "ja": "Japanese",
+        "en": "English",
+    }
+
     venv_python = _get_venv_python()
     if not venv_python:
         raise Exception(
@@ -646,12 +654,14 @@ def generate_audio_qwen3_multilingual(sections: dict, model: str) -> dict:
         output_path = os.path.join(media_dir, filename)
         debug_log(f"Qwen3-TTS multilingual: generating {lang} audio — {len(text)} chars")
         try:
-            response = _send_request({
+            payload = {
                 "text": text,
                 "model": model,
                 "voice_prompt": voice_prompts[lang],
+                "language": lang_codes[lang],
                 "output_path": output_path,
-            })
+            }
+            response = _send_request(payload)
             if response.get("status") == "ok" and os.path.isfile(output_path) and os.path.getsize(output_path) > 100:
                 results[lang] = f"[sound:{filename}]"
                 debug_log(f"Qwen3-TTS multilingual: {lang} saved → {filename}")
@@ -700,12 +710,13 @@ def generate_audio_qwen3(text, model="Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign", voi
         output_path = os.path.join(media_dir, filename)
 
         debug_log(f"Qwen3-TTS: Sending request to server — text length={len(text)}")
-        response = _send_request({
+        payload = {
             "text": text,
             "model": model,
             "voice_prompt": voice_prompt,
             "output_path": output_path,
-        })
+        }
+        response = _send_request(payload)
 
         if response.get("status") != "ok":
             err = response.get("message", "Unknown server error")
