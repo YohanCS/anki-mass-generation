@@ -2,17 +2,17 @@
 
 > **Generate AI-powered explanations for language learning with high-quality text-to-speech audio**
 
-This Anki add-on helps language learners understand vocabulary words in context by generating explanations of target words using OpenAI's models AND relevant audio.
+This Anki add-on helps language learners understand vocabulary words in context by generating explanations of target words using OpenAI's GPT-5.4 AND relevant audio, including support for Qwen3-TTS multilanguage voice synthesis.
 
 ## ✨ Features
 
 ### 🧠 **Intelligent Explanations**
 - Automatically generates contextual explanations for target words based on an example sentence and usage.
-- Choose any OpenAI text model (eg, GPT-4.1, GPT-4o, GPT-3.5) for accurate, beginner-friendly explanations
+- Choose any OpenAI text model (eg, GPT-5.4, GPT-4.1, GPT-4o) for accurate, beginner-friendly explanations
 - Customizable prompts to match your learning style and level
 
 ### 🎵 **High-Quality Audio Generation**
-- **Multiple TTS Engines**: Choose from VoiceVox, AivisSpeech, ElevenLabs, or OpenAI TTS
+- **Multiple TTS Engines**: Choose from VoiceVox, AivisSpeech, ElevenLabs, OpenAI TTS, or Qwen3-TTS
 - **Voice Preview & Selection**: Listen to samples and choose your preferred voice for AivisSpeech and VoiceVox
 - **Adjustable Speed**: Adjust the speed of OpenAI TTS with a slider
 - **Batch Processing**: Generate audio for multiple cards at once
@@ -66,6 +66,11 @@ This Anki add-on helps language learners understand vocabulary words in context 
 1. Use the same OpenAI API key as text generation
 2. Choose from available voices (alloy, echo, fable, etc.)
 3. Adjust the speed between 0.5x to 3x in 0.1x intervals
+
+#### **Qwen3-TTS** (Open Source, Multilingual)
+1. Supports 10+ languages including Chinese, Japanese, Korean, English, and more
+2. Offers high-quality, expressive speech with natural language-based voice control
+3. Configure the endpoint in the TTS settings
 
 ## 🎯 Usage
 
